@@ -45,11 +45,12 @@
 
 ## 3. Conversation Intelligence
 
-- [ ] **OpenAI GPT Integration**
-  - [ ] Design system prompt for customer service
-  - [ ] Implement conversation context management
-  - [ ] Handle intent detection and entity extraction
-  - [ ] Set up response generation with appropriate tone
+- [x] **OpenAI GPT Integration**
+  - [x] Design system prompt for customer service
+  - [x] Implement conversation context management
+  - [x] Handle intent detection and entity extraction
+  - [x] Set up response generation with appropriate tone
+  - [x] Create CLI tools for testing conversations
 
 - [ ] **Knowledge Base Integration**
   - [ ] Implement Kayako KB search function
