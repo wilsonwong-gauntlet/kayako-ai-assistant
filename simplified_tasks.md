@@ -39,6 +39,7 @@
   - [x] Set up OpenAI TTS for response generation
   - [x] Handle streaming audio conversion
   - [x] Implement error handling for voice services
+  - [x] Create CLI tools for testing voice features
 
 ---
 
