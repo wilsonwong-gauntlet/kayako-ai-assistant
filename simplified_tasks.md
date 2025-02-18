@@ -17,12 +17,12 @@
   - [x] Configure core environment variables
   - [ ] *[Later] Get Kayako API access*
 
-- [ ] **Kayako Integration Setup** *(Can be done in parallel)*
-  - [ ] Design mock Kayako API for development
-  - [ ] Define KB and Ticketing API interfaces
+- [x] **Kayako Integration Setup** *(Can be done in parallel)*
+  - [x] Design mock Kayako API for development
+  - [x] Define KB and Ticketing API interfaces
   - [ ] *[Later] Set up sandbox/demo instance*
   - [ ] *[Later] Verify KB and Ticketing API access*
-  - [ ] Document API requirements and endpoints
+  - [x] Document API requirements and endpoints
 
 ---
 

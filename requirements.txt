@@ -7,6 +7,7 @@ requests>=2.31.0
 pydantic>=2.5.0
 python-multipart>=0.0.6
 pytest>=7.4.3
+pytest-asyncio>=0.23.0
 black>=23.11.0
 isort>=5.12.0
 flake8>=6.1.0
