@@ -63,17 +63,17 @@
 
 ## 4. Call Flow & Business Logic
 
-- [ ] **Core Conversation Flow**
-  - [ ] Implement greeting and initial query collection
-  - [ ] Create KB search and response logic
-  - [ ] Handle escalation scenarios
-  - [ ] Manage conversation state
+- [x] **Core Conversation Flow**
+  - [x] Implement greeting and initial query collection
+  - [x] Create KB search and response logic
+  - [x] Handle escalation scenarios
+  - [x] Manage conversation state
 
-- [ ] **Ticket Management**
-  - [ ] Implement ticket creation
-  - [ ] Capture caller details (email, phone)
-  - [ ] Handle escalation to human agents
-  - [ ] Include call transcript in tickets
+- [x] **Ticket Management**
+  - [x] Implement ticket creation
+  - [x] Capture caller details (email, phone)
+  - [x] Handle escalation to human agents
+  - [x] Include call transcript in tickets
 
 ---
 
