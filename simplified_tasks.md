@@ -11,10 +11,10 @@
   - [x] Set up virtual environment
   - [x] Install core packages (Flask/FastAPI, openai, twilio)
 
-- [ ] **API Keys & Security**
-  - [ ] Obtain OpenAI API key (for GPT, Whisper, and TTS)
-  - [ ] Obtain Twilio credentials
-  - [ ] Configure core environment variables
+- [x] **API Keys & Security**
+  - [x] Obtain OpenAI API key (for GPT, Whisper, and TTS)
+  - [x] Obtain Twilio credentials
+  - [x] Configure core environment variables
   - [ ] *[Later] Get Kayako API access*
 
 - [ ] **Kayako Integration Setup** *(Can be done in parallel)*
