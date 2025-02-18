@@ -28,11 +28,11 @@
 
 ## 2. Voice Integration
 
-- [ ] **Twilio Setup**
-  - [ ] Purchase and configure phone number
-  - [ ] Set up webhook endpoint for incoming calls
-  - [ ] Implement basic call handling with TwiML
-  - [ ] Configure audio quality settings
+- [x] **Twilio Setup**
+  - [x] Purchase and configure phone number
+  - [x] Set up webhook endpoint for incoming calls
+  - [x] Implement basic call handling with TwiML
+  - [x] Configure audio quality settings
 
 - [x] **OpenAI Voice Integration**
   - [x] Implement Whisper API for speech-to-text

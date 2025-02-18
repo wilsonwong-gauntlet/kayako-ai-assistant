@@ -1,0 +1,6 @@
+version: "2"
+authtoken: 2rwivzjqsZJyj8KRp51ecCa1L3t_5kTseVw8249mcnYFfmTqg
+tunnels:
+  kayako:
+    addr: 8000
+    proto: http 
