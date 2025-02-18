@@ -5,8 +5,13 @@ import tempfile
 from typing import AsyncGenerator, BinaryIO, Optional
 import asyncio
 from openai import OpenAI
+from dotenv import load_dotenv
 from . import config
 
+# Load environment variables
+load_dotenv()
+
+# Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 async def transcribe_audio(audio_data: BinaryIO, prompt: Optional[str] = None) -> str:
