@@ -14,13 +14,15 @@
 - [ ] **API Keys & Security**
   - [ ] Obtain OpenAI API key (for GPT, Whisper, and TTS)
   - [ ] Obtain Twilio credentials
-  - [ ] Get Kayako API access
-  - [ ] Configure environment variables
+  - [ ] Configure core environment variables
+  - [ ] *[Later] Get Kayako API access*
 
-- [ ] **Kayako Integration Setup**
-  - [ ] Set up Kayako sandbox/demo instance
-  - [ ] Verify KB and Ticketing API access
-  - [ ] Document API endpoints
+- [ ] **Kayako Integration Setup** *(Can be done in parallel)*
+  - [ ] Design mock Kayako API for development
+  - [ ] Define KB and Ticketing API interfaces
+  - [ ] *[Later] Set up sandbox/demo instance*
+  - [ ] *[Later] Verify KB and Ticketing API access*
+  - [ ] Document API requirements and endpoints
 
 ---
 
