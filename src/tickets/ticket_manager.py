@@ -3,6 +3,7 @@
 import re
 from typing import List, Optional, Dict
 from datetime import datetime
+import sentry_sdk
 from pydantic import BaseModel, EmailStr, Field
 
 from ..kb.interfaces import Ticket
@@ -92,36 +93,63 @@ class TicketManager:
         Raises:
             ValueError: If neither email nor phone is provided
         """
-        if not email and not phone:
-            raise ValueError("Either email or phone number must be provided")
-        
-        if email and not self._validate_email(email):
-            raise ValueError("Invalid email format")
-        
-        if phone and not self._validate_phone(phone):
-            raise ValueError("Invalid phone number format")
-        
-        # Create ticket metadata
-        metadata = TicketMetadata(
-            conversation_id=context.conversation_id,
-            transcript=self._format_transcript(context)
-        )
-        
-        # Create ticket
-        ticket = Ticket(
-            id="",  # Will be set by API
-            subject=subject,
-            description=description,
-            requester_email=email or "",
-            phone_number=phone,
-            status="open",
-            priority=self._determine_priority(context)
-        )
-        
-        # Create ticket through API
-        ticket_id = await self.api.create_ticket(ticket)
-        
-        return ticket_id
+        with sentry_sdk.start_transaction(
+            op="ticket.create",
+            name="create_support_ticket",
+            description=f"Create ticket for {email or phone}"
+        ):
+            try:
+                if not email and not phone:
+                    raise ValueError("Either email or phone number must be provided")
+                
+                if email and not self._validate_email(email):
+                    sentry_sdk.capture_message(
+                        "Invalid email format",
+                        level="warning",
+                        extras={"email": email}
+                    )
+                    raise ValueError("Invalid email format")
+                
+                if phone and not self._validate_phone(phone):
+                    sentry_sdk.capture_message(
+                        "Invalid phone format",
+                        level="warning",
+                        extras={"phone": phone}
+                    )
+                    raise ValueError("Invalid phone number format")
+                
+                # Create ticket metadata
+                metadata = TicketMetadata(
+                    conversation_id=context.conversation_id,
+                    transcript=self._format_transcript(context)
+                )
+                
+                # Create ticket
+                ticket = Ticket(
+                    id="",  # Will be set by API
+                    subject=subject,
+                    description=description,
+                    requester_email=email or "",
+                    phone_number=phone,
+                    status="open",
+                    priority=self._determine_priority(context)
+                )
+                
+                # Create ticket through API
+                ticket_id = await self.api.create_ticket(ticket)
+                
+                # Track successful creation
+                sentry_sdk.set_tag("ticket.status", "created")
+                sentry_sdk.set_measurement("ticket.creation_success", 1)
+                
+                return ticket_id
+                
+            except Exception as e:
+                # Track failed creation
+                sentry_sdk.set_tag("ticket.status", "failed")
+                sentry_sdk.set_measurement("ticket.creation_failure", 1)
+                sentry_sdk.capture_exception(e)
+                raise
     
     def extract_contact_info(self, message: str) -> Dict[str, Optional[str]]:
         """
@@ -133,15 +161,35 @@ class TicketManager:
         Returns:
             Dictionary with 'email' and 'phone' keys
         """
-        # Extract email
-        email_match = re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', message)
-        email = email_match.group(0) if email_match else None
-        
-        # Extract phone number
-        phone_match = re.search(r'\+?1?\d{10,15}', message)
-        phone = phone_match.group(0) if phone_match else None
-        
-        return {"email": email, "phone": phone}
+        with sentry_sdk.start_span(op="ticket.extract_contact", description="Extract contact info from message"):
+            # Extract email
+            email_match = re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', message)
+            email = email_match.group(0) if email_match else None
+            
+            # Extract phone number (support various formats)
+            phone_patterns = [
+                r'\+?1?\d{10}',  # Basic 10-digit
+                r'\+?1?\d{3}[-.\s]\d{3}[-.\s]\d{4}',  # With separators
+                r'\+?1?\(\d{3}\)\s*\d{3}[-.\s]\d{4}'  # With parentheses
+            ]
+            
+            phone = None
+            for pattern in phone_patterns:
+                phone_match = re.search(pattern, message)
+                if phone_match:
+                    phone = phone_match.group(0)
+                    break
+            
+            # Log validation results to Sentry
+            sentry_sdk.set_context("contact_validation", {
+                "message": message,
+                "email_found": email is not None,
+                "phone_found": phone is not None,
+                "email_value": email,
+                "phone_value": phone
+            })
+            
+            return {"email": email, "phone": phone}
     
     def format_ticket_description(self, context: ConversationContext) -> str:
         """Format ticket description from conversation context."""

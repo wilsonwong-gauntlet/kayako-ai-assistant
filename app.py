@@ -8,6 +8,7 @@ import os
 import sentry_sdk
 from twilio.request_validator import RequestValidator
 import logging
+from sentry_sdk.integrations.fastapi import FastApiIntegration
 
 from src.voice.twilio_handler import TwilioHandler
 
@@ -26,9 +27,31 @@ sentry_dsn = os.getenv("SENTRY_DSN")
 if sentry_dsn and not sentry_dsn.startswith("your_"):
     sentry_sdk.init(
         dsn=sentry_dsn,
-        traces_sample_rate=1.0,
+        traces_sample_rate=1.0,  # Capture all transactions in development
         environment=os.getenv("APP_ENV", "development"),
+        enable_tracing=True,
+        profiles_sample_rate=1.0,  # Capture all profiles in development
+        attach_stacktrace=True,
+        before_send=lambda event, hint: {
+            # Remove sensitive data before sending
+            **event,
+            "request": {
+                **event.get("request", {}),
+                "headers": {k: v for k, v in event.get("request", {}).get("headers", {}).items() 
+                          if k.lower() not in ["authorization", "cookie"]}
+            }
+        } if event.get("request") else event,
+        integrations=[
+            FastApiIntegration(
+                transaction_style="endpoint",
+                middleware_spans=True,
+            ),
+        ],
     )
+    # Set up custom tags for better error grouping
+    sentry_sdk.set_tag("service", "voice_assistant")
+    # Set user scope for better error tracking
+    sentry_sdk.set_user({"id": "system"})
 
 app = FastAPI(
     title="Kayako AI Call Assistant",

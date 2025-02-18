@@ -80,8 +80,8 @@
 ## 5. Monitoring & Security
 
 - [ ] **Logging & Monitoring**
-  - [ ] Set up structured logging
-  - [ ] Implement error tracking (e.g., Sentry)
+  - [x] Set up structured logging
+  - [x] Implement error tracking (e.g., Sentry)
   - [ ] Track key metrics (resolution rate, call duration)
   - [ ] Monitor API usage and costs
 
