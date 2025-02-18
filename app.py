@@ -9,6 +9,7 @@ import sentry_sdk
 from twilio.request_validator import RequestValidator
 import logging
 from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.openai import OpenAIIntegration
 
 from src.voice.twilio_handler import TwilioHandler
 
@@ -32,6 +33,7 @@ if sentry_dsn and not sentry_dsn.startswith("your_"):
         enable_tracing=True,
         profiles_sample_rate=1.0,  # Capture all profiles in development
         attach_stacktrace=True,
+        send_default_pii=True,  # Enable sending prompts and completions
         before_send=lambda event, hint: {
             # Remove sensitive data before sending
             **event,
@@ -45,6 +47,10 @@ if sentry_dsn and not sentry_dsn.startswith("your_"):
             FastApiIntegration(
                 transaction_style="endpoint",
                 middleware_spans=True,
+            ),
+            OpenAIIntegration(
+                include_prompts=True,  # Include LLM inputs/outputs
+                tiktoken_encoding_name="cl100k_base",  # For token counting with GPT-4
             ),
         ],
     )
