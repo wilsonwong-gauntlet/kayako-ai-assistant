@@ -2,7 +2,8 @@
 
 import os
 import tempfile
-from typing import AsyncGenerator, BinaryIO, Optional
+from typing import AsyncGenerator, BinaryIO, Optional, Union
+from pathlib import Path
 import asyncio
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -14,27 +15,41 @@ load_dotenv()
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-async def transcribe_audio(audio_data: BinaryIO, prompt: Optional[str] = None) -> str:
+async def transcribe_audio(audio_data: Union[str, Path, BinaryIO], prompt: Optional[str] = None) -> str:
     """
     Transcribe audio using OpenAI's Whisper API.
     
     Args:
-        audio_data: Audio file-like object
+        audio_data: Audio file path or file-like object
         prompt: Optional prompt to guide transcription (e.g., expected terms)
     
     Returns:
         Transcribed text
     """
     try:
-        response = await asyncio.to_thread(
-            client.audio.transcriptions.create,
-            file=audio_data,
-            model=config.WHISPER_MODEL,
-            language=config.WHISPER_LANGUAGE,
-            temperature=config.WHISPER_TEMPERATURE,
-            response_format=config.WHISPER_RESPONSE_FORMAT,
-            prompt=prompt
-        )
+        # If audio_data is a string or Path, open the file
+        if isinstance(audio_data, (str, Path)):
+            with open(audio_data, 'rb') as audio_file:
+                response = await asyncio.to_thread(
+                    client.audio.transcriptions.create,
+                    file=audio_file,
+                    model=config.WHISPER_MODEL,
+                    language=config.WHISPER_LANGUAGE,
+                    temperature=config.WHISPER_TEMPERATURE,
+                    response_format=config.WHISPER_RESPONSE_FORMAT,
+                    prompt=prompt
+                )
+        else:
+            # audio_data is already a file-like object
+            response = await asyncio.to_thread(
+                client.audio.transcriptions.create,
+                file=audio_data,
+                model=config.WHISPER_MODEL,
+                language=config.WHISPER_LANGUAGE,
+                temperature=config.WHISPER_TEMPERATURE,
+                response_format=config.WHISPER_RESPONSE_FORMAT,
+                prompt=prompt
+            )
         return response
 
     except Exception as e:
