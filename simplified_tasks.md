@@ -4,7 +4,6 @@
 
 - [x] **Project Configuration**
   - [x] Set up GitHub repository
-  - [x] Configure GitHub Actions for CI/CD
   - [x] Set up branch protection and PR workflow
 
 - [x] **Development Environment**
