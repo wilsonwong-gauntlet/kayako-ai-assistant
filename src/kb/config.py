@@ -1,5 +1,5 @@
 import os
-from typing import Optional
+from typing import Optional, List
 from pydantic import BaseSettings
 
 class KayakoSettings(BaseSettings):
@@ -27,6 +27,10 @@ class KayakoSettings(BaseSettings):
     KAYAKO_MAX_RETRIES: int = int(os.getenv('KAYAKO_MAX_RETRIES', '3'))
     KAYAKO_RETRY_BACKOFF_MIN: int = int(os.getenv('KAYAKO_RETRY_BACKOFF_MIN', '4'))
     KAYAKO_RETRY_BACKOFF_MAX: int = int(os.getenv('KAYAKO_RETRY_BACKOFF_MAX', '10'))
+    
+    # SSL/TLS settings
+    SSL_CERT_PATH: str = os.getenv('SSL_CERT_PATH', 'certs/server.crt')
+    SSL_KEY_PATH: str = os.getenv('SSL_KEY_PATH', 'certs/server.key')
     
     class Config:
         env_file = '.env'

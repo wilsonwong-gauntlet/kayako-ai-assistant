@@ -45,4 +45,10 @@ htmlcov/
 
 # Logs
 *.log
-logs/ 
+logs/
+
+# SSL Certificates
+certs/
+*.crt
+*.key
+*.csr 
