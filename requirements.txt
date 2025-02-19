@@ -15,4 +15,14 @@ sentry-sdk>=1.35.0
 click>=8.1.7
 sounddevice>=0.4.6
 soundfile>=0.12.1
-numpy>=1.24.0 
+numpy>=1.24.0
+
+# Kayako API Integration
+aiohttp>=3.9.1  # For async HTTP requests
+backoff>=2.2.1  # For retry handling
+tenacity>=8.2.3  # For robust retry policies
+python-jose>=3.3.0  # For JWT handling (OAuth)
+cryptography>=41.0.0  # For secure token storage
+aiofiles>=23.2.1  # For async file operations
+httpx>=0.25.0  # Modern HTTP client with async support
+cachetools>=5.3.0  # For response caching 
