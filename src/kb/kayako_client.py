@@ -6,36 +6,35 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from cachetools import TTLCache
 from datetime import datetime, timedelta
 import base64
-import re
+from pydantic import BaseModel
+import json
 
 from .interfaces import Article, Ticket, User, Message, KayakoAPI
 
 class KayakoAuthManager:
-    """Manages authentication for Kayako API."""
-    def __init__(self, email: str, password: str):
+    """Manages Basic HTTP Authentication for Kayako API."""
+    
+    def __init__(self, email: str, password: str, base_url: str):
         self.email = email
         self.password = password
-        self._auth_header = None
-        self._init_auth_header()
-
-    def _init_auth_header(self) -> None:
-        """Initialize the Basic Auth header."""
-        auth_string = f"{self.email}:{self.password}"
-        auth_bytes = auth_string.encode('utf-8')
-        auth_b64 = base64.b64encode(auth_bytes).decode('utf-8')
-        self._auth_header = f"Basic {auth_b64}"
-
-    async def get_auth_header(self) -> str:
-        """Get Basic Auth header for API requests."""
-        return self._auth_header
-
+        # Ensure base_url doesn't include /api/v1
+        self.base_url = base_url.rstrip('/').split('/api/v1')[0]
+        self.session_id: Optional[str] = None
+        self.auth_token: Optional[str] = None
+    
+    def _get_basic_auth_header(self) -> str:
+        """Generate Basic Auth header value."""
+        credentials = f"{self.email}:{self.password}"
+        encoded = base64.b64encode(credentials.encode()).decode()
+        return f"Basic {encoded}"
+    
     @backoff.on_exception(backoff.expo, aiohttp.ClientError, max_tries=3)
     async def authenticate(self) -> str:
         """Perform initial authentication and get session ID."""
         async with aiohttp.ClientSession() as session:
             # Use Basic HTTP Authentication header
             headers = {
-                'Authorization': self.get_auth_header(),
+                'Authorization': self._get_basic_auth_header(),
                 'Content-Type': 'application/json',
                 'Accept': 'application/json'
             }
@@ -93,7 +92,7 @@ class RealKayakoAPI(KayakoAPI):
     
     def __init__(self, base_url: str, email: str, password: str):
         self.base_url = base_url.rstrip('/')
-        self.auth_manager = KayakoAuthManager(email, password)
+        self.auth_manager = KayakoAuthManager(email, password, base_url)
         # Cache for article searches (5 minute TTL)
         self.search_cache = TTLCache(maxsize=100, ttl=300)
         # Cache for user lookups (1 minute TTL)
@@ -102,65 +101,67 @@ class RealKayakoAPI(KayakoAPI):
         self.message_cache = TTLCache(maxsize=200, ttl=30)
     
     async def _get_headers(self) -> Dict[str, str]:
-        """Get headers for API requests."""
-        auth_header = await self.auth_manager.get_auth_header()
+        """Get headers with current session ID."""
+        session_id = await self.auth_manager.get_session_id()
         return {
-            "Accept": "application/json",
-            "Authorization": auth_header
+            'X-Session-ID': session_id,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
         }
-
-    async def _get(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Make a GET request to the Kayako API."""
+    
+    async def _get_session_params(self) -> Dict[str, str]:
+        """Get session ID as query parameter (alternative to header)."""
+        session_id = await self.auth_manager.get_session_id()
+        return {'_session_id': session_id}
+    
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    async def search_articles(self, query: str = '') -> List[Article]:
+        """Get all articles from the knowledge base."""
+        # Check cache first
+        cache_key = f"search:{query}"
+        if cache_key in self.search_cache:
+            return self.search_cache[cache_key]
+        
         async with aiohttp.ClientSession() as session:
             headers = await self._get_headers()
-            url = f"{self.base_url}/{endpoint}"
+            url = f"{self.base_url}/articles.json"
+            params = await self._get_session_params()
+            params['include'] = 'contents,titles,tags,section'
             
-            async with session.get(url, headers=headers, params=params) as response:
-                response.raise_for_status()
-                return await response.json()
-    
-    async def search_articles(self, query: str) -> List[Dict[str, Any]]:
-        """Search for articles in Kayako."""
-        params = {
-            "query": query,
-            "resources": "articles"
-        }
-        response = await self._get("search", params=params)
-        articles = response.get("data", [])
-        
-        # Fetch full article details for each result
-        for article in articles:
-            article_id = article["data"]["id"]
-            full_article = await self._get(f"articles/{article_id}")
-            article_data = full_article["data"]
+            print(f"\n=== Making request to: {url} ===")
+            print(f"Headers: {json.dumps(headers, indent=2)}")
+            print(f"Params: {json.dumps(params, indent=2)}")
             
-            # Get title from locale fields
-            if article_data.get("titles"):
-                title_id = article_data["titles"][0]["id"]
-                title_response = await self._get(f"locale/fields/{title_id}")
-                article["title"] = title_response["data"]["translation"]
-            
-            # Get content from locale fields
-            if article_data.get("contents"):
-                content_id = article_data["contents"][0]["id"]
-                content_response = await self._get(f"locale/fields/{content_id}")
-                article["content"] = content_response["data"]["translation"]
-            
-            # Add section/category info
-            if article_data.get("section"):
-                section_id = article_data["section"]["id"]
-                section_response = await self._get(f"sections/{section_id}")
-                if section_response["data"].get("titles"):
-                    title_id = section_response["data"]["titles"][0]["id"]
-                    title_response = await self._get(f"locale/fields/{title_id}")
-                    article["category"] = title_response["data"]["translation"]
-                else:
-                    article["category"] = f"Section {section_id}"
-            
-            # Add tags
-            article["tags"] = article_data.get("tags", [])
-        
-        return articles
+            try:
+                async with session.get(
+                    url,
+                    headers=headers,
+                    params=params
+                ) as response:
+                    response.raise_for_status()
+                    data = await response.json()
+                    print(f"\n=== Raw API Response ===")
+                    print(json.dumps(data, indent=2))
+                    
+                    articles = []
+                    for item in data.get('data', []):
+                        try:
+                            article = await self.get_article(str(item.get('id', '')))
+                            if article:
+                                articles.append(article)
+                        except Exception as e:
+                            print(f"Error processing article: {e}")
+                            continue
+                    
+                    # Cache the results
+                    self.search_cache[cache_key] = articles
+                    return articles
+            except aiohttp.ClientResponseError as e:
+                print(f"Articles API error: {e.status} - {e.message}")
+                return []
+            except Exception as e:
+                print(f"Unexpected error fetching articles: {e}")
+                return []
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     async def create_ticket(self, ticket: Ticket) -> str:
@@ -194,25 +195,115 @@ class RealKayakoAPI(KayakoAPI):
                 return str(data['id'])
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-    async def get_article(self, article_id: str) -> Article:
-        """Get a specific article by ID with retry logic."""
+    async def get_article_content(self, content_id: str) -> str:
+        """Get article content by content ID."""
         async with aiohttp.ClientSession() as session:
             headers = await self._get_headers()
+            params = await self._get_session_params()
             
-            async with session.get(
-                f"{self.base_url}/articles/{article_id}",
-                headers=headers
-            ) as response:
-                response.raise_for_status()
-                data = await response.json()
-                
-                return Article(
-                    id=data['id'],
-                    title=data['title'],
-                    content=data['content'],
-                    tags=data.get('tags', []),
-                    category=data.get('category', 'General')
-                )
+            url = f"{self.base_url}/locale/fields/{content_id}.json"
+            print(f"\n=== Making request to: {url} ===")
+            print(f"Headers: {json.dumps(headers, indent=2)}")
+            print(f"Params: {json.dumps(params, indent=2)}")
+            
+            try:
+                async with session.get(
+                    url,
+                    headers=headers,
+                    params=params
+                ) as response:
+                    response.raise_for_status()
+                    data = await response.json()
+                    print(f"\n=== Raw API Response for content {content_id} ===")
+                    print(json.dumps(data, indent=2))
+                    
+                    # Get the translation directly from the response
+                    content = data.get('data', {}).get('translation', '')
+                    return content or 'No content available'
+            except aiohttp.ClientResponseError as e:
+                print(f"Error fetching article content: {e.status} - {e.message}")
+                return f"Error fetching content: {e.status}"
+            except Exception as e:
+                print(f"Unexpected error fetching article content: {e}")
+                return "Error fetching content"
+    
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    async def get_article(self, article_id: str) -> Optional[Article]:
+        """Get a single article by ID with full content."""
+        async with aiohttp.ClientSession() as session:
+            headers = await self._get_headers()
+            params = await self._get_session_params()
+            params['include'] = 'contents,titles,tags,section'
+            
+            url = f"{self.base_url}/articles/{article_id}.json"
+            print(f"\n=== Making request to: {url} ===")
+            print(f"Headers: {json.dumps(headers, indent=2)}")
+            print(f"Params: {json.dumps(params, indent=2)}")
+            
+            try:
+                async with session.get(
+                    url,
+                    headers=headers,
+                    params=params
+                ) as response:
+                    response.raise_for_status()
+                    data = await response.json()
+                    print(f"\n=== Raw API Response for article {article_id} ===")
+                    print(json.dumps(data, indent=2))
+                    
+                    item = data.get('data', {})
+                    
+                    # Get title from titles array
+                    titles = item.get('titles', [])
+                    title = ''
+                    if titles:
+                        title_content = await self.get_article_content(str(titles[0].get('id')))
+                        title = title_content if title_content != 'No content available' else ''
+                    
+                    if not title:
+                        # Fallback to slug if no title content
+                        slugs = item.get('slugs', [])
+                        for slug in slugs:
+                            if slug.get('locale') == 'en-us':
+                                title = slug.get('translation', '').replace('-', ' ').title()
+                                break
+                        if not title and slugs:
+                            title = slugs[0].get('translation', '').replace('-', ' ').title()
+                    
+                    # Get content
+                    contents = item.get('contents', [])
+                    content = ''
+                    if contents:
+                        content = await self.get_article_content(str(contents[0].get('id')))
+                    
+                    # Get category from section
+                    section = item.get('section', {})
+                    section_slugs = section.get('slugs', [])
+                    category = 'General'
+                    if section_slugs:
+                        for slug in section_slugs:
+                            if slug.get('locale') == 'en-us':
+                                category = slug.get('translation', '').replace('-', ' ').title()
+                                break
+                        if not category and section_slugs:
+                            category = section_slugs[0].get('translation', '').replace('-', ' ').title()
+                    
+                    # Get tags
+                    tags = [str(tag.get('id', '')) for tag in item.get('tags', [])]
+                    
+                    return Article(
+                        id=str(item.get('id', '')),
+                        title=title,
+                        content=content,
+                        tags=tags,
+                        category=category
+                    )
+            except aiohttp.ClientResponseError as e:
+                print(f"Error fetching article: {e.status} - {e.message}")
+                return None
+            except Exception as e:
+                print(f"Unexpected error fetching article: {e}")
+                return None
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     async def get_user(self, user_id: str) -> Optional[User]:
@@ -570,37 +661,4 @@ class RealKayakoAPI(KayakoAPI):
                             del self.message_cache[key]
                     del self.message_cache[f"message:{message_id}"]
                 
-                return True
-
-@classmethod
-def from_api_response(cls, item: Dict[str, Any]) -> "Article":
-    # Convert integer ID to string
-    article_id = str(item["id"])
-    
-    # Extract title from locale fields
-    title_id = next((t["id"] for t in item["titles"] if t["resource_type"] == "locale_field"), None)
-    title = f"Article {article_id}"  # Default title
-    
-    # Extract content from locale fields
-    content_id = next((c["id"] for c in item["contents"] if c["resource_type"] == "locale_field"), None)
-    content = ""  # Default content
-    
-    # If we have title/content IDs, we should fetch them from the locale fields endpoint
-    # For now, use the slug as a fallback
-    if not title_id:
-        slug = next((s["translation"] for s in item["slugs"] if s["locale"] == "en-us"), "")
-        title = re.sub(r'^\d+\s*-\s*', '', slug)  # Remove ID prefix from slug
-    
-    # Extract tags
-    tags = [str(tag["id"]) for tag in item.get("tags", [])]
-    
-    # Extract category from section
-    category = str(item.get("section", {}).get("id", ""))
-    
-    return cls(
-        id=article_id,
-        title=title,
-        content=content or title,  # Use title as content if no content available
-        tags=tags,
-        category=category
-    ) 
+                return True 

@@ -7,7 +7,7 @@ from openai import AsyncOpenAI
 from dotenv import load_dotenv
 import json
 
-from .mock_data import SAMPLE_ARTICLES
+from .kayako_client import RealKayakoAPI
 from .interfaces import Article
 
 # Load environment variables
@@ -20,19 +20,30 @@ class KBSearchEngine:
     """Search engine for knowledge base articles."""
     
     def __init__(self):
-        """Initialize the search engine with articles."""
-        self.articles = {a["id"]: Article(**a) for a in SAMPLE_ARTICLES}
+        """Initialize the search engine."""
+        self.api = RealKayakoAPI(
+            base_url=os.getenv("KAYAKO_API_URL"),
+            email=os.getenv("KAYAKO_EMAIL"),
+            password=os.getenv("KAYAKO_PASSWORD")
+        )
         self.article_embeddings: Dict[str, List[float]] = {}
+        self.articles: Dict[str, Article] = {}
     
     async def initialize(self):
         """Initialize article embeddings."""
-        for article_id, article in self.articles.items():
+        # Search for articles using the real API
+        articles = await self.api.search_articles("")
+        
+        # Store articles and create embeddings
+        for article in articles:
+            self.articles[article.id] = article
+            
             # Create a searchable representation of the article
             article_text = f"Title: {article.title}\nContent: {article.content}\nTags: {', '.join(article.tags)}"
             
             # Get embedding for the article
             embedding = await self._get_embedding(article_text)
-            self.article_embeddings[article_id] = embedding
+            self.article_embeddings[article.id] = embedding
     
     async def _get_embedding(self, text: str) -> List[float]:
         """Get embedding for a piece of text."""

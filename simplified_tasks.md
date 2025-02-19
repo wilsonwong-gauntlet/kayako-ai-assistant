@@ -31,8 +31,8 @@
     - [x] Add rate limiting and error handling
     - [x] Implement response caching
     - [ ] Set up webhook handling
-  - [ ] *[Later] Set up sandbox/demo instance*
-  - [ ] *[Later] Verify KB and Ticketing API access*
+  - [x] Set up sandbox/demo instance
+  - [x] Verify KB and Ticketing API access
   - [x] Document API requirements and endpoints
 
 ---
@@ -97,7 +97,7 @@
   - [x] Monitor API usage and costs
 
 - [ ] **Security Measures**
-  - [ ] Implement HTTPS endpoints
+  - [x] Implement HTTPS endpoints
   - [ ] Secure API authentication
   - [ ] Handle PII data protection
   - [ ] Set up audit logging

@@ -39,6 +39,74 @@ Welcome to our service! Here's how to get started:
         """.strip(),
         "tags": ["onboarding", "setup", "getting started"],
         "category": "Getting Started"
+    },
+    {
+        "id": "art-004",
+        "title": "Accepted Payment Methods",
+        "content": """
+We accept the following payment methods:
+1. Credit/Debit Cards
+   - Visa
+   - Mastercard
+   - American Express
+2. Digital Wallets
+   - PayPal
+   - Apple Pay
+   - Google Pay
+3. Bank Transfer (ACH)
+
+All payments are processed securely through our payment provider Stripe.
+        """.strip(),
+        "tags": ["payment", "billing", "credit card", "paypal"],
+        "category": "Billing"
+    },
+    {
+        "id": "art-005",
+        "title": "Update Payment Information",
+        "content": """
+To update your payment method:
+1. Log into your account
+2. Go to Settings > Billing
+3. Click 'Update Payment Method'
+4. Enter new payment details
+5. Click 'Save Changes'
+
+Your next billing cycle will use the new payment method.
+For help, contact support@example.com
+        """.strip(),
+        "tags": ["payment", "billing", "update", "settings"],
+        "category": "Billing"
+    },
+    {
+        "id": "art-006",
+        "title": "Subscription Plans and Features",
+        "content": """
+Available subscription plans:
+
+Basic Plan ($10/month):
+- Up to 100 tickets/month
+- Email support
+- Basic reporting
+
+Professional Plan ($25/month):
+- Unlimited tickets
+- Priority email & phone support
+- Advanced reporting
+- Custom branding
+
+Enterprise Plan ($50/month):
+- All Professional features
+- 24/7 priority support
+- API access
+- Dedicated account manager
+
+To upgrade/downgrade:
+1. Go to Settings > Subscription
+2. Choose new plan
+3. Confirm changes
+        """.strip(),
+        "tags": ["subscription", "plans", "pricing", "features"],
+        "category": "Billing"
     }
 ]
 

@@ -2,6 +2,7 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
 from dataclasses import dataclass, field
+from abc import ABC, abstractmethod
 
 class User(BaseModel):
     """Kayako user model."""
@@ -33,7 +34,7 @@ class Article:
     title: str
     content: str
     tags: List[str] = field(default_factory=list)
-    category: str = ""
+    category: str = "General"
 
     @classmethod
     def from_api_response(cls, item: Dict[str, Any]) -> 'Article':
@@ -78,12 +79,12 @@ class Ticket(BaseModel):
     status: str = "open"
     priority: str = "medium"
 
-class KayakoAPI:
-    """Interface for Kayako API interactions."""
-    
-    async def search_articles(self, query: str) -> List[Article]:
-        """Search knowledge base articles."""
-        # TODO: Implement real API call or mock data
+class KayakoAPI(ABC):
+    """Interface for Kayako API client."""
+
+    @abstractmethod
+    async def search_articles(self, query: str) -> list[Article]:
+        """Search for articles in Kayako."""
         pass
     
     async def create_ticket(self, ticket: Ticket) -> str:

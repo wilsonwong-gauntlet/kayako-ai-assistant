@@ -6,8 +6,8 @@ class KayakoSettings(BaseSettings):
     """Kayako API configuration settings."""
     
     # Base URL for the Kayako API
-    KAYAKO_API_URL: str = "https://your-domain.kayako.com/api/v1"
-    KAYAKO_BASE_URL: str = "https://your-domain.kayako.com/api/v1"
+    KAYAKO_API_URL: str = "https://doug-test.kayako.com/api/v1"
+    KAYAKO_BASE_URL: str = "https://doug-test.kayako.com/api/v1"
     
     # Authentication
     KAYAKO_EMAIL: str
