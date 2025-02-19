@@ -2,20 +2,52 @@ import pytest
 from datetime import datetime, timezone
 import aiohttp
 from unittest.mock import AsyncMock, patch
+import os
 
 from src.kb.kayako_client import RealKayakoAPI
 from src.kb.interfaces import User, Message, Ticket
 from tests.kb.test_config import TEST_CONFIG, TEST_USER, TEST_MESSAGE, TEST_TICKET
 
+TEST_USER = {
+    "id": 123,
+    "email": "test.user@example.org",
+    "full_name": "Test User",
+    "organization_id": 1,
+    "role_id": 1
+}
+
+TEST_MESSAGE = {
+    "id": "msg123",
+    "conversation_id": "conv123",
+    "content": "Test message content",
+    "type": "reply",
+    "created_at": datetime.now(timezone.utc),
+    "updated_at": None,
+    "is_private": False,
+    "attachments": []
+}
+
+TEST_TICKET = {
+    "id": "ticket-123",
+    "subject": "Test Ticket",
+    "description": "Test ticket description",
+    "requester_email": "test.user@example.org",
+    "phone_number": "+1234567890",
+    "status": "open",
+    "priority": "medium"
+}
+
 @pytest.fixture
 async def api_client():
     """Create a test instance of RealKayakoAPI."""
     client = RealKayakoAPI(
-        base_url=TEST_CONFIG['base_url'],
-        client_id=TEST_CONFIG['client_id'],
-        client_secret=TEST_CONFIG['client_secret']
+        base_url=os.getenv('KAYAKO_API_URL'),
+        email=os.getenv('KAYAKO_EMAIL'),
+        password=os.getenv('KAYAKO_PASSWORD')
     )
-    return client
+    await client.initialize()
+    yield client
+    await client.close()
 
 @pytest.mark.asyncio
 async def test_auth_token_refresh(api_client):
@@ -81,17 +113,16 @@ async def test_create_message(api_client):
         **TEST_MESSAGE
     }
     
-    with patch('aiohttp.ClientSession.post', return_value=mock_response):
-        message = Message(
-            id='',
-            conversation_id='conv123',
-            **TEST_MESSAGE,
-            created_at=datetime.now(timezone.utc)
-        )
-        message_id = await api_client.create_message('conv123', message)
-        assert message_id == 'msg123'
-        # Verify cache
-        assert f"message:msg123" in api_client.message_cache
+    async with api_client as client:
+        with patch('aiohttp.ClientSession.post', return_value=mock_response):
+            message = Message(
+                conversation_id='conv123',
+                **TEST_MESSAGE
+            )
+            message_id = await client.create_message('conv123', message)
+            assert message_id == 'msg123'
+            # Verify cache
+            assert f"message:msg123" in client.message_cache
 
 @pytest.mark.asyncio
 async def test_get_messages(api_client):
