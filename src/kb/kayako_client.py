@@ -6,33 +6,36 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from cachetools import TTLCache
 from datetime import datetime, timedelta
 import base64
+import re
 
 from .interfaces import Article, Ticket, User, Message, KayakoAPI
 
 class KayakoAuthManager:
-    """Manages Basic HTTP Authentication for Kayako API."""
-    
-    def __init__(self, email: str, password: str, base_url: str):
+    """Manages authentication for Kayako API."""
+    def __init__(self, email: str, password: str):
         self.email = email
         self.password = password
-        # Ensure base_url doesn't include /api/v1
-        self.base_url = base_url.rstrip('/').split('/api/v1')[0]
-        self.session_id: Optional[str] = None
-        self.auth_token: Optional[str] = None
-    
-    def _get_basic_auth_header(self) -> str:
-        """Generate Basic Auth header value."""
-        credentials = f"{self.email}:{self.password}"
-        encoded = base64.b64encode(credentials.encode()).decode()
-        return f"Basic {encoded}"
-    
+        self._auth_header = None
+        self._init_auth_header()
+
+    def _init_auth_header(self) -> None:
+        """Initialize the Basic Auth header."""
+        auth_string = f"{self.email}:{self.password}"
+        auth_bytes = auth_string.encode('utf-8')
+        auth_b64 = base64.b64encode(auth_bytes).decode('utf-8')
+        self._auth_header = f"Basic {auth_b64}"
+
+    async def get_auth_header(self) -> str:
+        """Get Basic Auth header for API requests."""
+        return self._auth_header
+
     @backoff.on_exception(backoff.expo, aiohttp.ClientError, max_tries=3)
     async def authenticate(self) -> str:
         """Perform initial authentication and get session ID."""
         async with aiohttp.ClientSession() as session:
             # Use Basic HTTP Authentication header
             headers = {
-                'Authorization': self._get_basic_auth_header(),
+                'Authorization': self.get_auth_header(),
                 'Content-Type': 'application/json',
                 'Accept': 'application/json'
             }
@@ -90,7 +93,7 @@ class RealKayakoAPI(KayakoAPI):
     
     def __init__(self, base_url: str, email: str, password: str):
         self.base_url = base_url.rstrip('/')
-        self.auth_manager = KayakoAuthManager(email, password, base_url)
+        self.auth_manager = KayakoAuthManager(email, password)
         # Cache for article searches (5 minute TTL)
         self.search_cache = TTLCache(maxsize=100, ttl=300)
         # Cache for user lookups (1 minute TTL)
@@ -99,58 +102,65 @@ class RealKayakoAPI(KayakoAPI):
         self.message_cache = TTLCache(maxsize=200, ttl=30)
     
     async def _get_headers(self) -> Dict[str, str]:
-        """Get headers with current session ID."""
-        session_id = await self.auth_manager.get_session_id()
+        """Get headers for API requests."""
+        auth_header = await self.auth_manager.get_auth_header()
         return {
-            'X-Session-ID': session_id,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
+            "Accept": "application/json",
+            "Authorization": auth_header
         }
-    
-    async def _get_session_params(self) -> Dict[str, str]:
-        """Get session ID as query parameter (alternative to header)."""
-        session_id = await self.auth_manager.get_session_id()
-        return {'_session_id': session_id}
-    
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-    async def search_articles(self, query: str) -> List[Article]:
-        """Search knowledge base articles with caching and retry logic."""
-        # Check cache first
-        cache_key = f"search:{query}"
-        if cache_key in self.search_cache:
-            return self.search_cache[cache_key]
-        
+
+    async def _get(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Make a GET request to the Kayako API."""
         async with aiohttp.ClientSession() as session:
             headers = await self._get_headers()
-            params = {
-                'query': query,
-                'type': 'article',
-                **await self._get_session_params()  # Add session ID as query param
-            }
+            url = f"{self.base_url}/{endpoint}"
             
-            async with session.get(
-                f"{self.base_url}/search",
-                headers=headers,
-                params=params
-            ) as response:
+            async with session.get(url, headers=headers, params=params) as response:
                 response.raise_for_status()
-                data = await response.json()
-                
-                articles = [
-                    Article(
-                        id=item['id'],
-                        title=item['title'],
-                        content=item['content'],
-                        tags=item.get('tags', []),
-                        category=item.get('category', 'General')
-                    )
-                    for item in data.get('data', [])
-                    if item['resource_type'] == 'article'
-                ]
-                
-                # Cache the results
-                self.search_cache[cache_key] = articles
-                return articles
+                return await response.json()
+    
+    async def search_articles(self, query: str) -> List[Dict[str, Any]]:
+        """Search for articles in Kayako."""
+        params = {
+            "query": query,
+            "resources": "articles"
+        }
+        response = await self._get("search", params=params)
+        articles = response.get("data", [])
+        
+        # Fetch full article details for each result
+        for article in articles:
+            article_id = article["data"]["id"]
+            full_article = await self._get(f"articles/{article_id}")
+            article_data = full_article["data"]
+            
+            # Get title from locale fields
+            if article_data.get("titles"):
+                title_id = article_data["titles"][0]["id"]
+                title_response = await self._get(f"locale/fields/{title_id}")
+                article["title"] = title_response["data"]["translation"]
+            
+            # Get content from locale fields
+            if article_data.get("contents"):
+                content_id = article_data["contents"][0]["id"]
+                content_response = await self._get(f"locale/fields/{content_id}")
+                article["content"] = content_response["data"]["translation"]
+            
+            # Add section/category info
+            if article_data.get("section"):
+                section_id = article_data["section"]["id"]
+                section_response = await self._get(f"sections/{section_id}")
+                if section_response["data"].get("titles"):
+                    title_id = section_response["data"]["titles"][0]["id"]
+                    title_response = await self._get(f"locale/fields/{title_id}")
+                    article["category"] = title_response["data"]["translation"]
+                else:
+                    article["category"] = f"Section {section_id}"
+            
+            # Add tags
+            article["tags"] = article_data.get("tags", [])
+        
+        return articles
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     async def create_ticket(self, ticket: Ticket) -> str:
@@ -560,4 +570,37 @@ class RealKayakoAPI(KayakoAPI):
                             del self.message_cache[key]
                     del self.message_cache[f"message:{message_id}"]
                 
-                return True 
+                return True
+
+@classmethod
+def from_api_response(cls, item: Dict[str, Any]) -> "Article":
+    # Convert integer ID to string
+    article_id = str(item["id"])
+    
+    # Extract title from locale fields
+    title_id = next((t["id"] for t in item["titles"] if t["resource_type"] == "locale_field"), None)
+    title = f"Article {article_id}"  # Default title
+    
+    # Extract content from locale fields
+    content_id = next((c["id"] for c in item["contents"] if c["resource_type"] == "locale_field"), None)
+    content = ""  # Default content
+    
+    # If we have title/content IDs, we should fetch them from the locale fields endpoint
+    # For now, use the slug as a fallback
+    if not title_id:
+        slug = next((s["translation"] for s in item["slugs"] if s["locale"] == "en-us"), "")
+        title = re.sub(r'^\d+\s*-\s*', '', slug)  # Remove ID prefix from slug
+    
+    # Extract tags
+    tags = [str(tag["id"]) for tag in item.get("tags", [])]
+    
+    # Extract category from section
+    category = str(item.get("section", {}).get("id", ""))
+    
+    return cls(
+        id=article_id,
+        title=title,
+        content=content or title,  # Use title as content if no content available
+        tags=tags,
+        category=category
+    ) 

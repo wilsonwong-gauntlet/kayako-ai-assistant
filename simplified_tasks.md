@@ -110,13 +110,13 @@
   - [ ] Write unit tests for core functions
   - [ ] Create integration tests for API calls
   - [ ] **Kayako API Testing**
-    - [ ] Test authentication flows
-    - [ ] Test rate limiting and retries
-    - [ ] Test conversation/ticket creation
-    - [ ] Test user management
-    - [ ] Test search functionality
+    - [x] Test authentication flows
+    - [x] Test rate limiting and retries
+    - [x] Test conversation/ticket creation
+    - [x] Test user management
+    - [x] Test search functionality
     - [ ] Test webhook handling
-    - [ ] Test error scenarios
+    - [x] Test error scenarios
   - [ ] Perform end-to-end call testing
   - [ ] Test error scenarios and fallbacks
 

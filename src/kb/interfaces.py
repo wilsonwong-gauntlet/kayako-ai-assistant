@@ -1,6 +1,7 @@
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
+from dataclasses import dataclass, field
 
 class User(BaseModel):
     """Kayako user model."""
@@ -25,23 +26,57 @@ class Message(BaseModel):
     updated_at: Optional[datetime] = None
     is_private: bool = False
 
-class Article(BaseModel):
-    """Knowledge base article."""
+@dataclass
+class Article:
+    """Represents a knowledge base article."""
     id: str
     title: str
     content: str
-    tags: List[str]
-    category: str
+    tags: List[str] = field(default_factory=list)
+    category: str = ""
+
+    @classmethod
+    def from_api_response(cls, item: Dict[str, Any]) -> 'Article':
+        """Create an Article instance from an API response."""
+        # Extract article ID
+        article_id = str(item.get('data', {}).get('id', item.get('id', '')))
+        
+        # Get title from the response
+        title = item.get('title', f"Article {article_id}")
+        
+        # Get content, falling back to snippet if full content not available
+        content = item.get('content', item.get('snippet', title))
+        
+        # Extract tags
+        tags = []
+        for tag in item.get('tags', []):
+            if isinstance(tag, dict):
+                tag_id = str(tag.get('id', ''))
+                if tag_id:
+                    tags.append(tag_id)
+            else:
+                tags.append(str(tag))
+        
+        # Get category
+        category = item.get('category', '')
+        
+        return cls(
+            id=article_id,
+            title=title,
+            content=content,
+            tags=tags,
+            category=category
+        )
 
 class Ticket(BaseModel):
     """Support ticket."""
-    id: str
+    id: Optional[str] = None
     subject: str
     description: str
-    requester_email: str
-    phone_number: Optional[str]
-    status: str
-    priority: str
+    requester_email: Optional[str] = None
+    phone_number: Optional[str] = None
+    status: str = "open"
+    priority: str = "medium"
 
 class KayakoAPI:
     """Interface for Kayako API interactions."""

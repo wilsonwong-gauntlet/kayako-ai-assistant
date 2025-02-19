@@ -2,43 +2,80 @@
 
 import asyncio
 import click
-from .search import KBSearchEngine
+import os
+import re
+import html
+from dotenv import load_dotenv
+from .kayako_client import RealKayakoAPI
+from .interfaces import Article
+
+def clean_html(text: str) -> str:
+    """Remove HTML tags and decode entities from text."""
+    # Remove HTML tags
+    text = re.sub(r'<[^>]+>', ' ', text)
+    # Decode HTML entities
+    text = html.unescape(text)
+    # Normalize whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
 @click.group()
 def cli():
     """Test knowledge base search functionality."""
     pass
 
-@cli.command()
+async def get_api() -> RealKayakoAPI:
+    """Get an initialized Kayako API client."""
+    load_dotenv()
+    return RealKayakoAPI(
+        base_url=os.getenv('KAYAKO_API_URL'),
+        email=os.getenv('KAYAKO_EMAIL'),
+        password=os.getenv('KAYAKO_PASSWORD')
+    )
+
+@cli.command(name='search')
 @click.argument('query')
 @click.option('--results', default=3, help='Maximum number of results to show')
-def search(query: str, results: int):
+def search_cmd(query: str, results: int):
     """Search the knowledge base."""
     async def _search():
-        # Initialize search engine
-        engine = KBSearchEngine()
-        print("Initializing search engine...")
-        await engine.initialize()
+        print(f"Searching Kayako knowledge base for: {query}")
         
-        # Search for articles
-        print(f"\nSearching for: {query}")
-        search_results = await engine.search(query, max_results=results)
+        api = await get_api()
+        articles = await api.search_articles(query)
         
-        if not search_results:
-            print("\nNo relevant articles found.")
+        if not articles:
+            print("\nNo articles found.")
             return
         
-        # Display results
-        print("\nSearch Results:")
-        for i, (article, score) in enumerate(search_results, 1):
-            print(f"\n{i}. {article.title} (Relevance: {score:.2f})")
-            print(f"Category: {article.category}")
-            print(f"Tags: {', '.join(article.tags)}")
-            print(f"Content Preview: {article.content[:150]}...")
+        print(f"\nFound {len(articles)} articles. Showing top {min(results, len(articles))}:")
+        print()
+        
+        for i, article in enumerate(articles[:results], 1):
+            article_obj = Article.from_api_response(article)
             
-            # Generate summary
-            summary = await engine.generate_summary(article, query)
-            print(f"\nSummary: {summary}")
+            # Print article title with border
+            title = f"{i}. {article_obj.title}"
+            print(title)
+            print("=" * len(title))
+            print()
+            
+            # Clean and format content preview
+            content = clean_html(article_obj.content)
+            words = content.split()
+            preview = " ".join(words[:50]) + ("..." if len(words) > 50 else "")
+            print(preview)
+            print()
+            
+            # Print metadata
+            if article_obj.category:
+                print(f"Category: {article_obj.category}")
+            if article_obj.tags:
+                print(f"Tags: {', '.join(article_obj.tags)}")
+            
+            # Print separator between articles
+            if i < len(articles[:results]):
+                print("\n" + "-" * 80 + "\n")
     
     asyncio.run(_search())
 
@@ -47,17 +84,13 @@ def search(query: str, results: int):
 def quick_answer(query: str):
     """Get a quick answer from the knowledge base."""
     async def _quick_answer():
-        # Initialize search engine
-        engine = KBSearchEngine()
-        print("Initializing search engine...")
-        await engine.initialize()
+        api = await get_api()
+        articles = await api.search_articles(query)
         
-        # Search and summarize
-        print(f"\nFinding answer for: {query}")
-        answer = await engine.search_and_summarize(query)
-        
-        if answer:
-            print(f"\nAnswer: {answer}")
+        if articles:
+            article = Article.from_api_response(articles[0])
+            print(f"\nBest match: {article.title}")
+            print(f"\nAnswer: {clean_html(article.content)}")
         else:
             print("\nSorry, I couldn't find a relevant answer to your question.")
     
