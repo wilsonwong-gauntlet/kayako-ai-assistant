@@ -3,9 +3,11 @@
 import os
 from typing import Dict, List, Optional, Tuple
 import uuid
+import re
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 import json
+import sentry_sdk
 
 from .state import (
     ConversationContext,
@@ -35,6 +37,50 @@ class ConversationHandler:
             current_state=ConversationState.GREETING
         )
         return conversation_id
+    
+    def extract_contact_info(self, message: str) -> Dict[str, Optional[str]]:
+        """
+        Extract email and phone number from message if present.
+        
+        Args:
+            message: User message to extract from
+        
+        Returns:
+            Dictionary with 'email' and 'phone' keys
+        """
+        with sentry_sdk.start_span(op="conversation.extract_contact", description="Extract contact info from message"):
+            # Clean up the message for email extraction
+            cleaned_message = message.lower().replace(" at ", "@").replace(" dot ", ".")
+            
+            # Extract email with more flexible pattern
+            email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w{2,}', cleaned_message)
+            email = email_match.group(0) if email_match else None
+            
+            # Extract phone number (support various formats)
+            phone_patterns = [
+                r'\+?1?\d{10}',  # Basic 10-digit
+                r'\+?1?\d{3}[-.\s]\d{3}[-.\s]\d{4}',  # With separators
+                r'\+?1?\(\d{3}\)\s*\d{3}[-.\s]\d{4}'  # With parentheses
+            ]
+            
+            phone = None
+            for pattern in phone_patterns:
+                phone_match = re.search(pattern, message)
+                if phone_match:
+                    phone = phone_match.group(0)
+                    break
+            
+            # Log validation results to Sentry
+            sentry_sdk.set_context("contact_validation", {
+                "message": message,
+                "cleaned_message": cleaned_message,
+                "email_found": email is not None,
+                "phone_found": phone is not None,
+                "email_value": email,
+                "phone_value": phone
+            })
+            
+            return {"email": email, "phone": phone}
     
     async def detect_intent(self, text: str) -> Tuple[Intent, List[Entity]]:
         """Detect intent and entities from user input using GPT."""

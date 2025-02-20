@@ -9,6 +9,7 @@ import logging
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.kb.search import KBSearchEngine
+from src.kb.kayako_client import RealKayakoAPI
 
 # Configure logging
 logging.basicConfig(
@@ -18,41 +19,44 @@ logging.basicConfig(
 
 async def test_kb_search():
     """Test the knowledge base search functionality."""
-    engine = KBSearchEngine()  # No storage_dir needed
+    engine = KBSearchEngine()
     
     print("\n=== Testing KB Search Engine ===")
     
-    # Test 1: Initialize without loading articles
+    # Test 1: Initialize
     print("\n1. Testing initialization")
     await engine.initialize()
-    print(f"Cache size after init: {len(engine.articles)} articles")
     
-    # Test 2: First search query
-    print("\n2. Testing first search query")
-    query = "How to reset password"
+    # Test 2: Direct API test
+    print("\n2. Testing direct API access")
+    api = RealKayakoAPI(
+        base_url=os.getenv("KAYAKO_API_URL"),
+        email=os.getenv("KAYAKO_EMAIL"),
+        password=os.getenv("KAYAKO_PASSWORD")
+    )
+    articles = await api.search_articles("AdvocateHub unsearchable")
+    print(f"\nDirect API results:")
+    for article in articles:
+        print(f"- Title: {article.title}")
+        print(f"  Category: {article.category}")
+        print(f"  Content length: {len(article.content)} chars")
+    
+    # Test 3: Search through KB engine
+    print("\n3. Testing KB search")
+    query = "How to make AdvocateHub unsearchable by search engines"
     results = await engine.search(query)
-    print(f"Results for '{query}': {len(results)} articles")
-    if results:
-        print(f"Top result: {results[0][0].title} (score: {results[0][1]:.2f})")
+    print(f"\nKB search results for '{query}':")
+    for article, score in results:
+        print(f"- Title: {article.title}")
+        print(f"  Score: {score:.3f}")
+        print(f"  Category: {article.category}")
+        print(f"  Content length: {len(article.content)} chars")
     
-    # Test 3: Same query again (should use cache)
-    print("\n3. Testing cached search")
-    cached_results = await engine.search(query)
-    print(f"Cached results for '{query}': {len(cached_results)} articles")
-    
-    # Test 4: Different query
-    print("\n4. Testing different query")
-    new_query = "How to configure email settings"
-    new_results = await engine.search(new_query)
-    print(f"Results for '{new_query}': {len(new_results)} articles")
-    if new_results:
-        print(f"Top result: {new_results[0][0].title} (score: {new_results[0][1]:.2f})")
-    
-    # Test 5: Generate summary
-    print("\n5. Testing summary generation")
+    # Test 4: Generate summary
+    print("\n4. Testing summary generation")
     if results:
         summary = await engine.generate_summary(results[0][0], query)
-        print(f"Summary for '{query}':\n{summary}")
+        print(f"\nSummary for top result:\n{summary}")
 
 if __name__ == "__main__":
     asyncio.run(test_kb_search()) 

@@ -213,7 +213,10 @@ class EmbeddingStorage:
             async with self.pool.acquire() as conn:
                 # Use cosine similarity with pgvector
                 results = await conn.fetch('''
-                    SELECT article_id, 1 - (embedding <=> $1::vector) as similarity
+                    SELECT 
+                        article_id,
+                        (1 - (embedding <=> $1::vector)) as similarity,
+                        metadata
                     FROM article_embeddings
                     WHERE 1 - (embedding <=> $1::vector) > $2
                     ORDER BY similarity DESC
@@ -224,8 +227,42 @@ class EmbeddingStorage:
                 limit
                 )
                 
+                # Log search results for debugging
+                logger.info(f"Found {len(results)} articles with similarity > {similarity_threshold}")
+                for row in results:
+                    metadata = row['metadata'] if row['metadata'] else {}
+                    logger.info(f"Article {row['article_id']}: similarity={row['similarity']:.3f}, metadata={metadata}")
+                
                 return [(row['article_id'], row['similarity']) for row in results]
                 
         except Exception as e:
             logger.error(f"Error finding similar embeddings: {str(e)}")
             raise 
+    
+    async def get_metadata(self, article_id: str) -> Optional[Dict]:
+        """
+        Get metadata for an article.
+        
+        Args:
+            article_id: ID of the article
+            
+        Returns:
+            Dictionary of metadata if found, None otherwise
+        """
+        if not self.pool:
+            raise RuntimeError("Database connection not initialized")
+            
+        try:
+            async with self.pool.acquire() as conn:
+                result = await conn.fetchval(
+                    'SELECT metadata FROM article_embeddings WHERE article_id = $1',
+                    article_id
+                )
+                if result:
+                    # Parse JSON string into dictionary
+                    return json.loads(result) if isinstance(result, str) else result
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error getting metadata for article {article_id}: {str(e)}")
+            return None 

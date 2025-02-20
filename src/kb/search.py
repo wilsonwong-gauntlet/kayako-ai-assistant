@@ -93,7 +93,7 @@ class KBSearchEngine:
             similar_articles = await self.storage.find_similar(
                 query_embedding,
                 limit=max_results,
-                similarity_threshold=0.5  # Lower threshold for more matches
+                similarity_threshold=0.3  # Lower threshold for more matches
             )
             
             # Convert to list of (Article, score) tuples
@@ -109,6 +109,7 @@ class KBSearchEngine:
                         category=metadata.get("category", "General")
                     )
                     results.append((article, similarity))
+                    logger.info(f"Found article: {article.title} (score: {similarity:.3f})")
             
             logger.info(f"Found {len(results)} relevant articles")
             return results

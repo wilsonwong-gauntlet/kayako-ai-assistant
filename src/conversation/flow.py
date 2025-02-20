@@ -190,14 +190,22 @@ class ConversationFlowManager:
         elif state == ConversationState.CREATING_TICKET:
             # Creating support ticket
             contact_info = self.conversation_handler.extract_contact_info(message)
-            if contact_info:
+            if contact_info.get("email") or contact_info.get("phone"):
                 # Create ticket with conversation history
-                ticket_id = await self.ticket_manager.create_ticket(
-                    contact_info=contact_info,
-                    conversation_history=context.messages
-                )
-                context.transition_state(ConversationState.ENDED)
-                return "I've created a support ticket for you and our team will contact you soon. Is there anything else I can help you with?"
+                try:
+                    ticket_id = await self.ticket_manager.create_ticket(
+                        context=context,
+                        subject="Support Request from Voice Call",
+                        description=f"User Query: {message}\n\nConversation History:\n" + 
+                                 "\n".join([f"{m.role}: {m.content}" for m in context.messages]),
+                        email=contact_info.get("email"),
+                        phone=contact_info.get("phone")
+                    )
+                    context.transition_state(ConversationState.ENDED)
+                    return "I've created a support ticket for you and our team will contact you soon. Is there anything else I can help you with?"
+                except Exception as e:
+                    logger.error(f"Error creating ticket: {str(e)}")
+                    return "I'm having trouble creating your ticket. Could you please try providing your contact information again?"
             else:
                 return "I couldn't find a valid email address or phone number. Could you please provide one?"
         
