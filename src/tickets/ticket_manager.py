@@ -168,10 +168,10 @@ class TicketManager:
                 try:
                     ticket = Ticket(
                         subject='Support Request from Voice Call',
-                        contents=contents,
+                        contents=self.format_ticket_description(context),
                         channel="MAIL",  # Use MAIL channel
                         type_id=1,
-                        priority_id=1,
+                        priority_id=3,  # Match the curl example
                         requester_id=user.id if user else None
                     )
                     
@@ -265,27 +265,43 @@ class TicketManager:
     
     def format_ticket_description(self, context: ConversationContext) -> str:
         """Format ticket description from conversation context."""
-        # Get the initial issue description
-        initial_messages = [
-            msg.content for msg in context.messages[:3] 
-            if msg.role == "user"
-        ]
-        
-        # Get the last attempted solution
-        last_assistant_msg = next(
-            (msg.content for msg in reversed(context.messages) 
-             if msg.role == "assistant"),
-            "No solution provided"
+        # Get the initial issue (first user message that's not about email/contact)
+        initial_issue = next(
+            (msg.content for msg in context.messages 
+             if msg.role == "user" and not any(x in msg.content.lower() for x in ["@", "email", "gmail", "yahoo"])),
+            "No clear issue stated"
         )
         
-        description = f"""
-Issue Description:
-{' '.join(initial_messages)}
-
-Last Attempted Solution:
-{last_assistant_msg}
-
-Full transcript attached in ticket metadata.
-        """.strip()
+        # Get user's contact info from context metadata
+        contact_info = {
+            "email": context.metadata.get("email", "Not provided"),
+            "phone": context.metadata.get("phone", "Not provided")
+        }
         
-        return description 
+        # Format in HTML for better readability
+        description = f"""
+<h2>Customer Issue</h2>
+<p>{initial_issue}</p>
+
+<h2>Contact Information</h2>
+<p>Email: {contact_info["email"]}</p>
+<p>Phone: {contact_info["phone"]}</p>
+
+<h2>Source</h2>
+<p>Voice Assistant Call</p>
+
+<h2>Conversation History</h2>
+<pre>
+{self._format_conversation_history(context.messages)}
+</pre>
+"""
+        return description.strip()
+
+    def _format_conversation_history(self, messages: List[Message]) -> str:
+        """Format the conversation history with timestamps."""
+        formatted = []
+        for msg in messages:
+            timestamp = msg.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+            role = "Customer" if msg.role == "user" else "AI Assistant"
+            formatted.append(f"[{timestamp}] {role}: {msg.content}")
+        return "\n".join(formatted) 

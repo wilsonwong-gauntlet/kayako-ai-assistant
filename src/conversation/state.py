@@ -14,8 +14,8 @@ class ConversationState(Enum):
     CREATING_TICKET = "creating_ticket"
     ENDED = "ended"
 
-class Intent(Enum):
-    """Detected intents in user messages."""
+class Intent(str, Enum):
+    """Possible intents that can be detected from user input."""
     GENERAL_QUERY = "general_query"
     PASSWORD_RESET = "password_reset"
     BILLING_ISSUE = "billing_issue"
@@ -23,6 +23,7 @@ class Intent(Enum):
     ACCOUNT_ACCESS = "account_access"
     CONFIRM = "confirm"
     DENY = "deny"
+    END_CONVERSATION = "end_conversation"
     UNKNOWN = "unknown"
 
 class Entity(BaseModel):

@@ -92,8 +92,9 @@ Analyze the user's message and identify:
    - "billing_issue" - For billing or payment problems
    - "technical_problem" - For technical issues or errors
    - "account_access" - For account access issues (not password related)
-   - "confirm" - For positive confirmations
-   - "deny" - For negative responses
+   - "confirm" - For positive confirmations or agreement
+   - "deny" - For negative responses or disagreement
+   - "end_conversation" - For any indication that the user wants to end the conversation (e.g. "bye", "goodbye", "that's all", "thanks, I'm done", "have a good day", etc.)
    - "unknown" - When no other intent matches
 
 2. Any relevant entities (name, email, account number, etc.)
@@ -106,7 +107,14 @@ Respond in JSON format:
     ]
 }
 
-Example response for "I can't log in to my account":
+Example responses:
+For "Thanks, that's all I needed today":
+{
+    "intent": "end_conversation",
+    "entities": []
+}
+
+For "I can't log in to my account":
 {
     "intent": "account_access",
     "entities": []

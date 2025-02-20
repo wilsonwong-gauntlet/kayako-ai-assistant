@@ -105,7 +105,19 @@ class ConversationFlowManager:
                 
                 # Process based on current state
                 if context.current_state == ConversationState.COLLECTING_ISSUE:
-                    # Try to find relevant knowledge base article
+                    # First check if this message contains contact info
+                    contact_info = self.ticket_manager.extract_contact_info(message, context=context)
+                    if contact_info.get("email") or contact_info.get("phone"):
+                        # Store contact info and create ticket
+                        context.metadata["email"] = contact_info.get("email")
+                        context.metadata["phone"] = contact_info.get("phone")
+                        context.transition_state(ConversationState.CREATING_TICKET)
+                        success, response = await self._create_support_ticket(context)
+                        if success:
+                            context.transition_state(ConversationState.ENDED)
+                        return response
+                    
+                    # No contact info, try to find relevant knowledge base article
                     kb_response = None
                     if self.initialized:
                         kb_response = await self.kb_engine.search_and_summarize(message)
@@ -115,9 +127,27 @@ class ConversationFlowManager:
                         context.transition_state(ConversationState.PROVIDING_SOLUTION)
                         response = f"{kb_response}\n\nWas this information helpful?"
                     else:
-                        # No relevant KB articles found, escalate to human
+                        # No relevant KB articles found, ask for contact info
                         context.transition_state(ConversationState.CREATING_TICKET)
                         response = "I apologize, but I couldn't find a specific solution for your issue in our knowledge base. Let me create a support ticket so our team can assist you. Could you please provide your email address?"
+                elif context.current_state == ConversationState.CREATING_TICKET:
+                    # Collecting contact information and additional details
+                    contact_info = self.ticket_manager.extract_contact_info(message, context=context)
+                    logger.info(f"Extracted contact info: {contact_info}")
+                    
+                    if contact_info.get("email") or contact_info.get("phone"):
+                        # Store contact info in context for later use
+                        context.metadata["email"] = contact_info.get("email")
+                        context.metadata["phone"] = contact_info.get("phone")
+                        
+                        # Create ticket immediately with what we have
+                        success, response = await self._create_support_ticket(context)
+                        if success:
+                            context.transition_state(ConversationState.ENDED)
+                        return response
+                    else:
+                        logger.info("No valid contact information found in message")
+                        return "I couldn't find a valid email address or phone number. Could you please provide one?"
                 else:
                     # Handle based on current state
                     response = await self._handle_state(context, message, intent)
@@ -146,6 +176,45 @@ class ConversationFlowManager:
             )
             return "I apologize, but I'm experiencing technical difficulties. Would you like me to create a support ticket for you?"
 
+    async def _create_support_ticket(self, context: ConversationContext) -> Tuple[bool, str]:
+        """
+        Create a support ticket with proper formatting.
+        
+        Args:
+            context: Current conversation context
+            
+        Returns:
+            Tuple of (success, message)
+        """
+        try:
+            logger.info("Creating ticket with complete conversation history...")
+            # Find the first message that's not contact info and not from assistant
+            initial_issue = next(
+                (msg.content for msg in context.messages 
+                 if msg.role == "user" and not self.ticket_manager.extract_contact_info(msg.content).get("email")),
+                "No clear issue stated"
+            )
+            
+            # Format conversation history excluding contact info exchanges
+            conversation_history = "\n".join([
+                f"{m.role}: {m.content}" for m in context.messages
+                if not (m.role == "assistant" and "email address" in m.content.lower())
+                and not (m.role == "user" and self.ticket_manager.extract_contact_info(m.content).get("email"))
+            ])
+            
+            ticket_id = await self.ticket_manager.create_ticket(
+                context=context,
+                subject="Support Request from Voice Call",
+                contents=f"User Issue: {initial_issue}\n\nConversation History:\n{conversation_history}",
+                email=context.metadata.get("email"),
+                phone=context.metadata.get("phone")
+            )
+            logger.info(f"Successfully created ticket: {ticket_id}")
+            return True, "I've created a support ticket with our complete conversation. Thank you for contacting us. Have a great day!"
+        except Exception as e:
+            logger.error(f"Error creating ticket: {str(e)}")
+            return False, "I'm having trouble creating your ticket. Please try again later."
+
     async def _handle_state(self, context: ConversationContext, message: str, intent: Intent) -> str:
         """
         Handle the conversation based on current state.
@@ -166,15 +235,45 @@ class ConversationFlowManager:
             return "Hello! How can I help you today?"
         
         elif state == ConversationState.COLLECTING_ISSUE:
-            # Gathering information about the user's issue
-            if intent == Intent.UNKNOWN and "bye" in message.lower():
+            # First check if this message contains contact info
+            contact_info = self.ticket_manager.extract_contact_info(message, context=context)
+            if contact_info.get("email") or contact_info.get("phone"):
+                # Store contact info and create ticket
+                context.metadata["email"] = contact_info.get("email")
+                context.metadata["phone"] = contact_info.get("phone")
+                context.transition_state(ConversationState.CREATING_TICKET)
+                success, response = await self._create_support_ticket(context)
+                if success:
+                    context.transition_state(ConversationState.ENDED)
+                return response
+            
+            # Check if user wants to end conversation
+            if intent == Intent.END_CONVERSATION:
                 context.transition_state(ConversationState.ENDED)
+                # Create ticket if we have contact info
+                if "email" in context.metadata or "phone" in context.metadata:
+                    success, message = await self._create_support_ticket(context)
+                    return message
                 return "Thank you for contacting us. Have a great day!"
+            
+            # Check if user wants to talk to human
             elif intent == Intent.UNKNOWN and "human" in message.lower():
                 context.transition_state(ConversationState.CREATING_TICKET)
                 return "I'll need to create a ticket for further assistance. Could you please provide your email address?"
+            
+            # Try to find relevant knowledge base article
+            kb_response = None
+            if self.initialized:
+                kb_response = await self.kb_engine.search_and_summarize(message)
+                logger.info(f"KB search result for '{message}': {kb_response is not None}")
+            
+            if kb_response:
+                context.transition_state(ConversationState.PROVIDING_SOLUTION)
+                return f"{kb_response}\n\nWas this information helpful?"
             else:
-                return await self.conversation_handler.generate_response(context)
+                # No relevant KB articles found, ask for contact info
+                context.transition_state(ConversationState.CREATING_TICKET)
+                return "I apologize, but I couldn't find a specific solution for your issue in our knowledge base. Let me create a support ticket so our team can assist you. Could you please provide your email address?"
         
         elif state == ConversationState.PROVIDING_SOLUTION:
             # After providing KB article, check if it was helpful
@@ -188,38 +287,30 @@ class ConversationFlowManager:
                 return await self.conversation_handler.generate_response(context)
         
         elif state == ConversationState.CREATING_TICKET:
-            # Creating support ticket
+            # Check for contact info in message
             contact_info = self.ticket_manager.extract_contact_info(message, context=context)
             logger.info(f"Extracted contact info: {contact_info}")
             
             if contact_info.get("email") or contact_info.get("phone"):
-                # Create ticket with conversation history
-                try:
-                    logger.info("Attempting to create ticket...")
-                    ticket_id = await self.ticket_manager.create_ticket(
-                        context=context,
-                        subject="Support Request from Voice Call",
-                        contents=f"User Query: {message}\n\nConversation History:\n" + 
-                                 "\n".join([f"{m.role}: {m.content}" for m in context.messages]),
-                        email=contact_info.get("email"),
-                        phone=contact_info.get("phone")
-                    )
-                    logger.info(f"Successfully created ticket: {ticket_id}")
+                # Store contact info in context for later use
+                context.metadata["email"] = contact_info.get("email")
+                context.metadata["phone"] = contact_info.get("phone")
+                
+                # Create ticket immediately with what we have
+                success, response = await self._create_support_ticket(context)
+                if success:
                     context.transition_state(ConversationState.ENDED)
-                    return "I've created a support ticket for you and our team will contact you soon. Is there anything else I can help you with?"
-                except Exception as e:
-                    logger.error(f"Error creating ticket: {str(e)}")
-                    return "I'm having trouble creating your ticket. Could you please try providing your contact information again?"
+                return response
             else:
                 logger.info("No valid contact information found in message")
                 return "I couldn't find a valid email address or phone number. Could you please provide one?"
         
         elif state == ConversationState.ENDED:
-            # Conversation ended
+            # Handle normal ended state responses
             if intent == Intent.CONFIRM:
                 context.transition_state(ConversationState.COLLECTING_ISSUE)
                 return "What else can I help you with?"
-            elif intent == Intent.DENY or "bye" in message.lower():
+            elif intent == Intent.DENY or intent == Intent.END_CONVERSATION:
                 return "Thank you for contacting us. Have a great day!"
             else:
                 context.transition_state(ConversationState.COLLECTING_ISSUE)
