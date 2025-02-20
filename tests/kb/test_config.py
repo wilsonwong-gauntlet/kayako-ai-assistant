@@ -27,10 +27,12 @@ TEST_MESSAGE = {
 }
 
 TEST_TICKET = {
+    'id': 'ticket-123',
     'subject': 'Test Ticket',
-    'description': 'This is a test ticket',
-    'requester_email': 'test.user@example.com',
-    'phone_number': '+1234567890',
-    'status': 'open',
-    'priority': 'medium'
+    'contents': 'This is a test ticket',
+    'channel': 'phone',
+    'channel_id': 1,
+    'type_id': 1,
+    'priority_id': 1,
+    'status': 'ACTIVE'
 } 

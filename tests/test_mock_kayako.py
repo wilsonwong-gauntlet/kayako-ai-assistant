@@ -32,11 +32,12 @@ async def test_create_ticket(api):
     ticket = Ticket(
         id="",  # Will be set by API
         subject="Test Issue",
-        description="This is a test ticket",
-        requester_email="test@example.com",
-        phone_number="+1234567890",
-        status="open",
-        priority="medium"
+        contents="This is a test ticket",
+        channel="phone",
+        channel_id=1,
+        type_id=1,
+        priority_id=1,
+        status="ACTIVE"
     )
     
     ticket_id = await api.create_ticket(ticket)

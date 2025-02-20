@@ -114,11 +114,12 @@ SAMPLE_TICKETS = [
     {
         "id": "tick-001",
         "subject": "Cannot access account",
-        "description": "Getting error when trying to log in",
-        "requester_email": "user@example.com",
-        "phone_number": "+1234567890",
-        "status": "open",
-        "priority": "high"
+        "contents": "Getting error when trying to log in",
+        "channel": "phone",
+        "channel_id": 1,
+        "type_id": 1,
+        "priority_id": 1,
+        "status": "ACTIVE"
     }
 ]
 

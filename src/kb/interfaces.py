@@ -73,11 +73,13 @@ class Ticket(BaseModel):
     """Support ticket."""
     id: Optional[str] = None
     subject: str
-    description: str
-    requester_email: Optional[str] = None
-    phone_number: Optional[str] = None
-    status: str = "open"
-    priority: str = "medium"
+    contents: str  # Changed from description to match API
+    channel: str = "MAIL"  # Match the curl example exactly
+    channel_id: int = 1  # Match the curl example exactly
+    type_id: int = 1  # Default type ID
+    priority_id: int = 3  # Match the curl example exactly
+    requester_id: Optional[int] = None  # This must be set before creating ticket
+    status: Optional[str] = None  # Make status optional since it's redundant
 
 class KayakoAPI(ABC):
     """Interface for Kayako API client."""

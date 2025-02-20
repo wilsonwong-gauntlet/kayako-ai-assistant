@@ -29,11 +29,9 @@ class MockKayakoAPI(KayakoAPI):
 
     async def create_ticket(self, ticket: Ticket) -> str:
         """Create a new support ticket."""
-        # Validate status and priority
-        if ticket.status not in TICKET_STATUSES:
-            raise ValueError(f"Invalid status. Must be one of: {TICKET_STATUSES}")
-        if ticket.priority not in TICKET_PRIORITIES:
-            raise ValueError(f"Invalid priority. Must be one of: {TICKET_PRIORITIES}")
+        # Validate status
+        if ticket.status not in ["ACTIVE", "CLOSED", "PENDING"]:
+            raise ValueError(f"Invalid status. Must be one of: ACTIVE, CLOSED, PENDING")
         
         # Generate new ticket ID
         ticket_id = f"tick-{str(uuid.uuid4())[:8]}"
@@ -41,6 +39,14 @@ class MockKayakoAPI(KayakoAPI):
         
         # Store ticket
         self._tickets[ticket_id] = ticket
+        
+        # Log ticket creation
+        print(f"\nCreating ticket: {ticket_id}")
+        print(f"Subject: {ticket.subject}")
+        print(f"Contents: {ticket.contents}")
+        print(f"Status: {ticket.status}")
+        print(f"Total tickets: {len(self._tickets)}\n")
+        
         return ticket_id
 
     async def get_article(self, article_id: str) -> Optional[Article]:

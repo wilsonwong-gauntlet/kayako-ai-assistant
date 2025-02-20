@@ -79,7 +79,6 @@ class TwilioHandler:
         
         # Start gathering user input with enhanced settings
         gather = self._configure_gather(response)
-        self._configure_voice_response(gather, "Please speak after the tone.")
         response.append(gather)
         
         # Add fallback with enhanced voice settings
