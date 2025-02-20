@@ -10,8 +10,11 @@ from twilio.request_validator import RequestValidator
 import logging
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.openai import OpenAIIntegration
+from typing import List, Optional
+from pydantic import BaseModel
 
 from src.voice.twilio_handler import TwilioHandler
+from src.kb.search import KBSearchEngine
 
 # Load environment variables
 load_dotenv()
@@ -68,6 +71,9 @@ app = FastAPI(
 # Initialize Twilio handler
 twilio_handler = TwilioHandler()
 
+# Initialize KB search engine
+kb_engine = KBSearchEngine()
+
 # CORS middleware configuration
 app.add_middleware(
     CORSMiddleware,
@@ -76,6 +82,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add response model
+class SearchResult(BaseModel):
+    title: str
+    content: str
+    relevance: float
+    category: str
+    tags: List[str]
+
+class SearchResponse(BaseModel):
+    results: List[SearchResult]
+    summary: Optional[str] = None
 
 async def validate_twilio_request(request: Request) -> bool:
     """Validate that the request is from Twilio."""
@@ -191,6 +209,41 @@ async def handle_call_status(request: Request):
         logger.info(f"Call {call_sid} - Conversation ended")
     
     return {"status": "ok"}
+
+@app.get("/search", response_model=SearchResponse)
+async def search_kb(query: str, max_results: int = 3, summarize: bool = False):
+    """
+    Search the knowledge base for relevant articles.
+    
+    Args:
+        query: Search query string
+        max_results: Maximum number of results to return
+        summarize: Whether to generate a summary of the best match
+    """
+    # Initialize if not already done
+    if not kb_engine.initialized:
+        await kb_engine.initialize()
+    
+    # Search for articles
+    results = await kb_engine.search(query, max_results=max_results)
+    
+    # Convert to response format
+    search_results = []
+    for article, score in results:
+        search_results.append(SearchResult(
+            title=article.title,
+            content=article.content,
+            relevance=score,
+            category=article.category,
+            tags=article.tags
+        ))
+    
+    # Generate summary if requested and we have results
+    summary = None
+    if summarize and results:
+        summary = await kb_engine.generate_summary(results[0][0], query)
+    
+    return SearchResponse(results=search_results, summary=summary)
 
 if __name__ == "__main__":
     uvicorn.run(

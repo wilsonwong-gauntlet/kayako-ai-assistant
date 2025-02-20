@@ -8,8 +8,11 @@ from datetime import datetime, timedelta
 import base64
 from pydantic import BaseModel
 import json
+import logging
 
 from .interfaces import Article, Ticket, User, Message, KayakoAPI
+
+logger = logging.getLogger(__name__)
 
 class KayakoAuthManager:
     """Manages Basic HTTP Authentication for Kayako API."""
@@ -115,10 +118,19 @@ class RealKayakoAPI(KayakoAPI):
         return {'_session_id': session_id}
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-    async def search_articles(self, query: str = '') -> List[Article]:
-        """Get all articles from the knowledge base."""
+    async def search_articles(self, query: str = '', limit: Optional[int] = None) -> List[Article]:
+        """
+        Get articles from the knowledge base.
+        
+        Args:
+            query: Search query string
+            limit: Maximum number of articles to return
+            
+        Returns:
+            List of Article objects
+        """
         # Check cache first
-        cache_key = f"search:{query}"
+        cache_key = f"search:{query}:{limit}"
         if cache_key in self.search_cache:
             return self.search_cache[cache_key]
         
@@ -128,9 +140,17 @@ class RealKayakoAPI(KayakoAPI):
             params = await self._get_session_params()
             params['include'] = 'contents,titles,tags,section'
             
-            print(f"\n=== Making request to: {url} ===")
-            print(f"Headers: {json.dumps(headers, indent=2)}")
-            print(f"Params: {json.dumps(params, indent=2)}")
+            # Add search query if provided
+            if query:
+                params['q'] = query
+            
+            # Add limit if provided
+            if limit is not None:
+                params['per_page'] = limit
+            
+            logger.info(f"Fetching articles from: {url}")
+            logger.debug(f"Headers: {headers}")
+            logger.debug(f"Params: {params}")
             
             try:
                 async with session.get(
@@ -140,8 +160,7 @@ class RealKayakoAPI(KayakoAPI):
                 ) as response:
                     response.raise_for_status()
                     data = await response.json()
-                    print(f"\n=== Raw API Response ===")
-                    print(json.dumps(data, indent=2))
+                    logger.debug(f"Raw API Response: {data}")
                     
                     articles = []
                     for item in data.get('data', []):
@@ -149,18 +168,21 @@ class RealKayakoAPI(KayakoAPI):
                             article = await self.get_article(str(item.get('id', '')))
                             if article:
                                 articles.append(article)
+                                if limit and len(articles) >= limit:
+                                    break
                         except Exception as e:
-                            print(f"Error processing article: {e}")
+                            logger.error(f"Error processing article: {str(e)}")
                             continue
                     
                     # Cache the results
                     self.search_cache[cache_key] = articles
                     return articles
+                    
             except aiohttp.ClientResponseError as e:
-                print(f"Articles API error: {e.status} - {e.message}")
+                logger.error(f"Articles API error: {e.status} - {e.message}")
                 return []
             except Exception as e:
-                print(f"Unexpected error fetching articles: {e}")
+                logger.error(f"Unexpected error fetching articles: {str(e)}")
                 return []
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))

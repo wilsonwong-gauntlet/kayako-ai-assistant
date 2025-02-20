@@ -137,15 +137,7 @@ class TwilioHandler:
             
             # Continue gathering user input with enhanced settings
             gather = self._configure_gather(response)
-            self._configure_voice_response(gather, "Please speak after the tone.")
             response.append(gather)
-            
-            # Add fallback with enhanced voice settings
-            self._configure_voice_response(
-                response,
-                "I didn't hear anything. Please call back and try again."
-            )
-            response.hangup()
             
             # Track processing time if metrics exist
             if metrics:

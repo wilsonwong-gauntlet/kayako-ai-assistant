@@ -49,6 +49,9 @@ class KayakoSettings(BaseSettings):
     
     # Ngrok settings
     NGROK_AUTHTOKEN: Optional[str] = None
+
+    # Database settings
+    DATABASE_URL: str = "postgresql://gauntlet@localhost:5432/kayako"
     
     # Allow environment variables
     model_config = SettingsConfigDict(env_file='.env', case_sensitive=True)

@@ -6,9 +6,11 @@ import numpy as np
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 import json
+import logging
 
 from .kayako_client import RealKayakoAPI
 from .interfaces import Article
+from .storage import EmbeddingStorage
 
 # Load environment variables
 load_dotenv()
@@ -16,43 +18,46 @@ load_dotenv()
 # Initialize OpenAI client
 client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+# Configure logging
+logger = logging.getLogger(__name__)
+
 class KBSearchEngine:
     """Search engine for knowledge base articles."""
     
     def __init__(self):
         """Initialize the search engine."""
-        self.api = RealKayakoAPI(
-            base_url=os.getenv("KAYAKO_API_URL"),
-            email=os.getenv("KAYAKO_EMAIL"),
-            password=os.getenv("KAYAKO_PASSWORD")
-        )
-        self.article_embeddings: Dict[str, List[float]] = {}
-        self.articles: Dict[str, Article] = {}
+        self.storage = EmbeddingStorage()  # Let it use DATABASE_URL from env
+        self.initialized = False
     
     async def initialize(self):
-        """Initialize article embeddings."""
-        # Search for articles using the real API
-        articles = await self.api.search_articles("")
-        
-        # Store articles and create embeddings
-        for article in articles:
-            self.articles[article.id] = article
+        """Initialize the search engine."""
+        if self.initialized:
+            return
             
-            # Create a searchable representation of the article
-            article_text = f"Title: {article.title}\nContent: {article.content}\nTags: {', '.join(article.tags)}"
+        try:
+            logger.info("Initializing KB search engine")
             
-            # Get embedding for the article
-            embedding = await self._get_embedding(article_text)
-            self.article_embeddings[article.id] = embedding
+            # Initialize storage
+            await self.storage.initialize()
+            
+            self.initialized = True
+            
+        except Exception as e:
+            logger.error(f"Error initializing KB search engine: {str(e)}")
+            raise
     
     async def _get_embedding(self, text: str) -> List[float]:
         """Get embedding for a piece of text."""
-        response = await client.embeddings.create(
-            model="text-embedding-3-small",
-            input=text,
-            encoding_format="float"
-        )
-        return response.data[0].embedding
+        try:
+            response = await client.embeddings.create(
+                model="text-embedding-3-small",
+                input=text,
+                encoding_format="float"
+            )
+            return response.data[0].embedding
+        except Exception as e:
+            logger.error(f"Error getting embedding: {str(e)}")
+            raise
     
     def _calculate_similarity(self, embedding1: List[float], embedding2: List[float]) -> float:
         """Calculate cosine similarity between two embeddings."""
@@ -74,19 +79,43 @@ class KBSearchEngine:
         Returns:
             List of (article, relevance_score) tuples
         """
-        # Get query embedding
-        query_embedding = await self._get_embedding(query)
-        
-        # Calculate similarity scores
-        scores = []
-        for article_id, article_embedding in self.article_embeddings.items():
-            similarity = self._calculate_similarity(query_embedding, article_embedding)
-            scores.append((self.articles[article_id], similarity))
-        
-        # Sort by similarity score
-        scores.sort(key=lambda x: x[1], reverse=True)
-        
-        return scores[:max_results]
+        try:
+            logger.info(f"Searching for articles matching query: {query}")
+            
+            # Initialize if not done yet
+            if not self.initialized:
+                await self.initialize()
+            
+            # Get query embedding
+            query_embedding = await self._get_embedding(query)
+            
+            # Find similar articles using vector similarity search with high threshold
+            similar_articles = await self.storage.find_similar(
+                query_embedding,
+                limit=max_results,
+                similarity_threshold=0.5  # Lower threshold for more matches
+            )
+            
+            # Convert to list of (Article, score) tuples
+            results = []
+            for article_id, similarity in similar_articles:
+                metadata = await self.storage.get_metadata(article_id)
+                if metadata:
+                    article = Article(
+                        id=article_id,
+                        title=metadata.get("title", ""),
+                        content=metadata.get("content", ""),
+                        tags=metadata.get("tags", []),
+                        category=metadata.get("category", "General")
+                    )
+                    results.append((article, similarity))
+            
+            logger.info(f"Found {len(results)} relevant articles")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error in search: {str(e)}")
+            return []
     
     async def generate_summary(self, article: Article, query: str) -> str:
         """
@@ -147,7 +176,7 @@ Create a concise, relevant summary focusing on answering the query."""}
             best_match, score = results[0]
             
             # Only use the article if it's reasonably relevant
-            if score < 0.5:  # Lower threshold for quick answers
+            if score < 0.5:  # Lower threshold to match find_similar
                 return None
             
             # Generate a summary
@@ -155,5 +184,5 @@ Create a concise, relevant summary focusing on answering the query."""}
             return summary
             
         except Exception as e:
-            print(f"Error in search_and_summarize: {e}")
+            logger.error(f"Error in search_and_summarize: {str(e)}")
             return None 

@@ -11,10 +11,8 @@ class ConversationState(Enum):
     COLLECTING_ISSUE = "collecting_issue"
     SEARCHING_KB = "searching_kb"
     PROVIDING_SOLUTION = "providing_solution"
-    CONFIRMING_SOLUTION = "confirming_solution"
-    COLLECTING_DETAILS = "collecting_details"
     CREATING_TICKET = "creating_ticket"
-    ENDING_CALL = "ending_call"
+    ENDED = "ended"
 
 class Intent(Enum):
     """Detected intents in user messages."""
@@ -107,16 +105,31 @@ Last intent: {intent}"""
     
     def should_transition_state(self) -> Optional[ConversationState]:
         """Determine if the conversation should transition to a new state."""
-        # Implement state transition logic based on current state and last message
         if self.current_state == ConversationState.GREETING:
             # After greeting, move to collecting the issue
             return ConversationState.COLLECTING_ISSUE
             
         elif self.current_state == ConversationState.COLLECTING_ISSUE and self.last_intent:
             # Once we have an intent, move to searching KB
+            if self.last_intent == Intent.UNKNOWN and "human" in self.messages[-1].content.lower():
+                return ConversationState.CREATING_TICKET
             return ConversationState.SEARCHING_KB
             
-        # Add more state transition logic as needed
+        elif self.current_state == ConversationState.SEARCHING_KB:
+            # After searching, move to providing solution
+            return ConversationState.PROVIDING_SOLUTION
+            
+        elif self.current_state == ConversationState.PROVIDING_SOLUTION:
+            # After solution, check if it was helpful
+            if self.last_intent == Intent.CONFIRM:
+                return ConversationState.ENDED
+            elif self.last_intent == Intent.DENY:
+                return ConversationState.CREATING_TICKET
+            
+        elif self.current_state == ConversationState.CREATING_TICKET:
+            # After creating ticket, end conversation
+            return ConversationState.ENDED
+            
         return None
     
     def transition_state(self, new_state: ConversationState) -> None:

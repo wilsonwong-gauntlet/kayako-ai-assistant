@@ -2,12 +2,15 @@
 
 from typing import Optional, Tuple
 import uuid
+import logging
 from .state import ConversationState, Intent, ConversationContext
 from .handler import ConversationHandler
 from ..kb.search import KBSearchEngine
 from ..tickets.ticket_manager import TicketManager
 import sentry_sdk
 from ..monitoring.metrics import metrics_manager
+
+logger = logging.getLogger(__name__)
 
 class ConversationFlowManager:
     """Manages the complete conversation flow, including KB search and escalation."""
@@ -22,8 +25,15 @@ class ConversationFlowManager:
     async def initialize(self):
         """Initialize required components."""
         if not self.initialized:
-            await self.kb_engine.initialize()
-            self.initialized = True
+            try:
+                await self.kb_engine.initialize()
+                self.initialized = True
+            except Exception as e:
+                logger.error(f"Failed to initialize KB engine: {str(e)}")
+                # Don't raise the error, we can try again later
+                # Instead, return a friendly message to the user
+                return "I'm having trouble accessing our knowledge base right now. " \
+                       "I can still help you create a support ticket if needed."
     
     async def start_conversation(self) -> Tuple[str, str]:
         """
@@ -32,16 +42,30 @@ class ConversationFlowManager:
         Returns:
             Tuple of (conversation_id, initial_greeting)
         """
-        await self.initialize()
-        
-        # Create new conversation
-        conversation_id = self.conversation_handler.create_conversation()
-        context = self.conversation_handler.get_conversation_context(conversation_id)
-        
-        # Generate initial greeting
-        greeting = await self.conversation_handler.generate_response(context)
-        
-        return conversation_id, greeting
+        try:
+            # Try to initialize, but don't fail if it doesn't work
+            init_message = await self.initialize()
+            
+            # Create new conversation with initial state
+            conversation_id = self.conversation_handler.create_conversation()
+            context = self.conversation_handler.get_conversation_context(conversation_id)
+            
+            # Set initial state to COLLECTING_ISSUE to skip greeting
+            context.transition_state(ConversationState.COLLECTING_ISSUE)
+            
+            # Generate initial greeting
+            if init_message:
+                # If we had initialization issues, use that message
+                greeting = init_message
+            else:
+                greeting = "Welcome to Kayako Support. How can I help you today?"
+            
+            return conversation_id, greeting
+            
+        except Exception as e:
+            logger.error(f"Error starting conversation: {str(e)}")
+            # Return a generic conversation ID and friendly message
+            return str(uuid.uuid4()), "I'm having some technical difficulties, but I'll do my best to help you. What can I assist you with?"
     
     async def process_message(self, conversation_id: str, message: str) -> str:
         """
@@ -54,65 +78,73 @@ class ConversationFlowManager:
         Returns:
             Assistant's response
         """
-        await self.initialize()
-        
-        # Get conversation context
-        context = self.conversation_handler.get_conversation_context(conversation_id)
-        if not context:
-            raise ValueError(f"Conversation {conversation_id} not found")
-        
         try:
-            # First try to find relevant knowledge base article
-            kb_response = await self.kb_engine.search_and_summarize(message)
+            # Try to initialize if not already done
+            if not self.initialized:
+                init_message = await self.initialize()
+                if init_message:
+                    return init_message
             
-            # Get metrics for the conversation's call
-            metrics = None
-            for call_sid, call_metrics in metrics_manager.active_calls.items():
-                if conversation_id in str(call_metrics.call_sid):
-                    metrics = call_metrics
-                    break
+            # Get conversation context
+            context = self.conversation_handler.get_conversation_context(conversation_id)
+            if not context:
+                logger.error(f"Conversation {conversation_id} not found")
+                return "I seem to have lost track of our conversation. Could you please repeat what you were saying?"
             
-            # Track KB search result
-            if metrics:
-                metrics.track_kb_search(kb_response is not None)
-            
-            if kb_response:
-                context.transition_state(ConversationState.PROVIDING_SOLUTION)
-                return f"{kb_response}\n\nWas this information helpful?"
-            
-            # Detect intent and entities
-            intent, entities = await self.conversation_handler.detect_intent(message)
-            
-            # Add user message to context
-            context.add_message(
-                role="user",
-                content=message,
-                intent=intent,
-                entities=entities
-            )
-            
-            # Handle based on current state
-            response = await self._handle_state(context, message, intent)
-            
-            # Add assistant response to context
-            context.add_message(
-                role="assistant",
-                content=response
-            )
-            
-            return response
+            try:
+                # Detect intent and entities first
+                intent, entities = await self.conversation_handler.detect_intent(message)
+                
+                # Add user message to context
+                context.add_message(
+                    role="user",
+                    content=message,
+                    intent=intent,
+                    entities=entities
+                )
+                
+                # Process based on current state
+                if context.current_state == ConversationState.COLLECTING_ISSUE:
+                    # Try to find relevant knowledge base article
+                    kb_response = None
+                    if self.initialized:
+                        kb_response = await self.kb_engine.search_and_summarize(message)
+                        logger.info(f"KB search result for '{message}': {kb_response is not None}")
+                    
+                    if kb_response:
+                        context.transition_state(ConversationState.PROVIDING_SOLUTION)
+                        response = f"{kb_response}\n\nWas this information helpful?"
+                    else:
+                        # No relevant KB articles found, escalate to human
+                        context.transition_state(ConversationState.CREATING_TICKET)
+                        response = "I apologize, but I couldn't find a specific solution for your issue in our knowledge base. Let me create a support ticket so our team can assist you. Could you please provide your email address?"
+                else:
+                    # Handle based on current state
+                    response = await self._handle_state(context, message, intent)
+                
+                # Add assistant response to context
+                context.add_message(
+                    role="assistant",
+                    content=response
+                )
+                
+                return response
+                
+            except Exception as e:
+                logger.error(f"Error processing message: {str(e)}")
+                return "I'm having trouble processing your request. Could you please rephrase that or let me know if you'd like to speak with a human agent?"
             
         except Exception as e:
             # Log error with context
+            logger.error(f"Critical error in process_message: {str(e)}")
             sentry_sdk.capture_exception(
                 e,
                 extras={
                     "conversation_id": conversation_id,
-                    "message": message,
-                    "state": context.to_dict() if context else None
+                    "message": message
                 }
             )
-            return "I apologize, but I encountered an error processing your request. Could you please try rephrasing that?"
+            return "I apologize, but I'm experiencing technical difficulties. Would you like me to create a support ticket for you?"
 
     async def _handle_state(self, context: ConversationContext, message: str, intent: Intent) -> str:
         """
@@ -128,21 +160,17 @@ class ConversationFlowManager:
         """
         state = context.current_state
         
-        if state == ConversationState.INITIAL:
+        if state == ConversationState.GREETING:
             # Initial state - determine if we can help or need to create ticket
-            if intent == Intent.GREETING:
-                context.transition_state(ConversationState.GATHERING_INFO)
-                return "Hello! How can I help you today?"
-            else:
-                context.transition_state(ConversationState.GATHERING_INFO)
-                return await self.conversation_handler.generate_response(context)
+            context.transition_state(ConversationState.COLLECTING_ISSUE)
+            return "Hello! How can I help you today?"
         
-        elif state == ConversationState.GATHERING_INFO:
+        elif state == ConversationState.COLLECTING_ISSUE:
             # Gathering information about the user's issue
-            if intent == Intent.GOODBYE:
+            if intent == Intent.UNKNOWN and "bye" in message.lower():
                 context.transition_state(ConversationState.ENDED)
                 return "Thank you for contacting us. Have a great day!"
-            elif intent == Intent.ESCALATE:
+            elif intent == Intent.UNKNOWN and "human" in message.lower():
                 context.transition_state(ConversationState.CREATING_TICKET)
                 return "I'll need to create a ticket for further assistance. Could you please provide your email address?"
             else:
@@ -150,7 +178,7 @@ class ConversationFlowManager:
         
         elif state == ConversationState.PROVIDING_SOLUTION:
             # After providing KB article, check if it was helpful
-            if intent == Intent.AFFIRM:
+            if intent == Intent.CONFIRM:
                 context.transition_state(ConversationState.ENDED)
                 return "Great! Is there anything else I can help you with?"
             elif intent == Intent.DENY:
@@ -175,13 +203,13 @@ class ConversationFlowManager:
         
         elif state == ConversationState.ENDED:
             # Conversation ended
-            if intent == Intent.AFFIRM:
-                context.transition_state(ConversationState.GATHERING_INFO)
+            if intent == Intent.CONFIRM:
+                context.transition_state(ConversationState.COLLECTING_ISSUE)
                 return "What else can I help you with?"
-            elif intent == Intent.DENY or intent == Intent.GOODBYE:
+            elif intent == Intent.DENY or "bye" in message.lower():
                 return "Thank you for contacting us. Have a great day!"
             else:
-                context.transition_state(ConversationState.GATHERING_INFO)
+                context.transition_state(ConversationState.COLLECTING_ISSUE)
                 return await self.conversation_handler.generate_response(context)
         
         # Default response if state not handled
